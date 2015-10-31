@@ -1,4 +1,4 @@
-package gui_seed_collector;
+package cologne.eck.dr.op.entropy_pool;
 
 import java.awt.Dimension;
 
