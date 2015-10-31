@@ -1,5 +1,5 @@
 # EntropyPool
-Entropy pool provides seeds for cryptographic secure random number generators
+Entropy pool provides additional seeds for cryptographic secure random number generators
 
 Entropy pool generated from key strokes and mouse events of graphical user interfaces 
 and the Java thread schedule. The pool provides additional seed values for settings 
