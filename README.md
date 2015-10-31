@@ -11,6 +11,7 @@ various Xorshift generators. These threads are updated with the following values
 - time between key strokes
 - time between mouse events and mouse positions
 - systems nano time
+- 
 But the most of the randomness comes from the Java thread schedule. 
 
 For which scenario:
@@ -24,22 +25,29 @@ reseed random number generators.
 Example:
 
 // Register the Collectors for graphical user interfaces:
+
 textField.addKeyListener(new KeyRandomCollector() );
+
 panel.addMouseMotionListener(new MouseRandomCollector() );
 
 // get the EntropyPool instance
+
 EntropyPool entropyPool = EntropyPool.getInstance();
 
 // This will choose the random generator 
 // supported of the operating system if available: 
+
 SecureRandom random = new SecureRandom();
 
 // This will reseed the existing seed, so there is 
 //a guaranty that the randomness is never reduced: 
+
 random.setSeed( entropyPool.getEntropy(true) ); // stop the collection
 
 // use the random generator: 
+
 byte randomBytes[] = new byte[16];
+
 random.nextBytes(randomBytes);
 …
 // reseed the pool after 64 values
