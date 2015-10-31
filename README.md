@@ -11,7 +11,7 @@ various Xorshift generators. These threads are updated with the following values
 - time between key strokes
 - time between mouse events and mouse positions
 - systems nano time
-- 
+
 But the most of the randomness comes from the Java thread schedule. 
 
 For which scenario:
