@@ -2,7 +2,6 @@ package cologne.eck.dr.op.entropy_pool;
 
 import java.util.Arrays;
 
-
 /*
  * Collection of entropy from key strokes, 
  * mouse events and the java thread schedules. 
@@ -54,17 +53,17 @@ public final class EntropyPool {
 	/**
 	 * Constructor with quality-performance-setting and time limitation
 	 * 
-	 * @param quality			Higher quality means more accesses to the pool per second, 
-	 * 							and therefore more unpredictability of the access order, 
-	 * 							but also means more CPU cost. Recommended values are
-	 * 							from 1 to 25, default value is 10. 
+	 * @param quality		Higher quality means more accesses to the pool per second, 
+	 * 				and therefore more unpredictability of the access order, 
+	 * 				but also means more CPU cost. Recommended values are
+	 * 				from 1 to 25, default value is 10. 
 	 * @param maximalAccesses	Limit of accesses to the pool. The collections stops 
-	 * 							after maximalAccesses to the pool. Recommended values
-	 * 							are from 8192 to 262144. 
+	 * 				after maximalAccesses to the pool. Recommended values
+	 * 				are from 8192 to 262144. 
 	 * @param maximalUpdates	Limit of updates from other classes like MouseRandomCollector
-	 * 							and KeyRandomCollector. The collection stops after
-	 * 							maximalUpdates to the pool. Recommended values are
-	 * 							from 256 to 1024. 
+	 * 				and KeyRandomCollector. The collection stops after
+	 * 				maximalUpdates to the pool. Recommended values are
+	 * 				from 256 to 1024. 
 	 */
 	private EntropyPool(int quality, int maximalAccesses, int maximalUpdates){
 		pause = quality;
@@ -123,6 +122,11 @@ public final class EntropyPool {
 	// incremented for every access to the pool
 	private int tableCounter = 0;
 	
+	// counts the number of getValue() calls to
+	// avoid using values twice without reseeding
+	// the pool
+	private int getValueCounter = 0;
+	
 	// Limit the running time be the number of the accesses
 	// to the pool and the number of updates with values from
 	// KeyRandomCollector and MouseRandomCollector: 
@@ -172,7 +176,7 @@ public final class EntropyPool {
 			}
 			return;
 		}		
-		EntropyThread st = threads[threadCounter & THREAD_MASK];// % (THREAD_NUMBER - 1)];
+		EntropyThread st = threads[threadCounter & THREAD_MASK];
 
 		st.update(val);
 		
@@ -207,20 +211,24 @@ public final class EntropyPool {
 	 * the index is determined by the updates. 
 	 * The index does not necessarily starts 0 and if the collection 
 	 * is not stopped, the next index is not necessarily the previous index + 1. 
-	 * If the collection is no more running, the value is updated by performing
-	 * some xorshift generators, but this is not provably cryptographically secure. 
+	 * If the pool was finished and the next value would be used twice
+	 * without reseeding the pool, an Exception is thrown
 	 * 
 	 * @param stopCollection	if true, the collection stops.
 	 * 
-	 * @return					one 64-bit value of the pool. If the 
-	 * 							collection is still running, the index
-	 * 							is unpredictable.
+	 * @return			one 64-bit value of the pool. If the 
+	 * 				collection is still running, the index
+	 * 				is unpredictable.
 	 */
 	public final long getValue(boolean stopCollection) {		
-		
+				
 		// check if the collection was started: 
 		if (wasStarted == false) {
-			throw new IllegalStateException("The SeedCollecton wasn't started yet!");
+			throw new IllegalStateException("The entropy pool wasn't started yet!");
+		}
+		// check if the next value was already used:
+		if (getValueCounter >= POOL_SIZE) {
+			throw new IllegalStateException("The entroy pool must be reseeded!");
 		}
 		
 		// return next value, if > 63 start at 0, then increment counter:
@@ -232,26 +240,20 @@ public final class EntropyPool {
 				stopCollection();
 				ePool.isRunning = false;
 			}
+			getValueCounter++;
 		} 
-		if (ePool.isRunning == false) {		
-			// update the value of the pool
-			for (int i = 0; i < TRIPLE_NUMBER; i++) {
-				ePool.pool[resultIndex] = xorShift(
-						ePool.pool[resultIndex], 
-						triples[i][0], triples[i][1], triples[i][2]); 
-			}
-		}
+
 		return result;
 	}	
 	
 	/**
 	 * Get one value of the seed pool. The collection must be stopped before. 
-	 * The value is updated by performing some xorshift generators, but this 
-	 * is not provably cryptographically secure. 
+	 * If the next value would be used twice without reseeding the pool, 
+	 * an Exception is thrown.
 	 * 
-	 * @param index				the index of the pool
+	 * @param index			the index of the pool
 	 * 
-	 * @return					one 64-bit value of the pool. 
+	 * @return			the first four 64-bit values of the pool. 
 	 */
 	public final long getValue(int index) {		
 		
@@ -262,47 +264,30 @@ public final class EntropyPool {
 		if (ePool.isRunning == true){
 			throw new IllegalStateException("The EntropyPool must be stopped before.");
 		}
+		// check if the next value was already used:
+		if (getValueCounter >= POOL_SIZE) {
+			throw new IllegalStateException("The entroy pool must be reseeded!");
+		}
 		
 		// return next value, if > 63 start at 0, then increment counter:
 		long result = ePool.pool[index];	
 		 
-
-		// update the value of the pool
-		for (int i = 0; i < TRIPLE_NUMBER; i++) {
-			ePool.pool[index] = xorShift(
-					ePool.pool[index], 
-					triples[i][0], triples[i][1], triples[i][2]); 
-		}
 		tableCounter = (index + 1) & POOL_MASK;//% (POOL_SIZE - 1);
+		
+		getValueCounter++;
+		
 		return result;
 	}	
 	
 	/**
-	 * Reseed the last value you took from the pool. 
-	 * Avoids using a value of the pool twice. 
-	 * To be cryptographically secure, the argument to update 
-	 * should be performed e.g. by a cryptographically
-	 * secure hash algorithm. 
+	 * Get values from pool to reseed it. This allows using values twice.
 	 * 
-	 * @param newValue	the value to be Xored with the 
-	 * 					last taken value of the pool
+	 * @return	a long array with 4 element (32 byte)
 	 */
-	public final void reseedLastValue(long newValue) {
-		
-		if (isRunning == true) {
-			throw new IllegalStateException("Collection must be stopped");
-		}
-		if (wasStarted == false) {
-			throw new IllegalStateException("The EntropyPool wasn't started yet!");
-		}
-		// update the value of the pool
-		int resultIndex = (tableCounter - 1) & POOL_MASK;//% (POOL_SIZE - 1);
-		for (int i = 0; i < TRIPLE_NUMBER; i++) {
-			ePool.pool[resultIndex] = xorShift(
-					ePool.pool[resultIndex], 
-					triples[i][0], triples[i][1], triples[i][2]); 
-		}
-		ePool.pool[resultIndex] ^= newValue;
+	public final long[] getValuesToReseed(){
+		long[] result = new long[4];
+		System.arraycopy(pool, 0, result, 0, 4);
+		return result;
 	}
 	
 	/**
@@ -312,7 +297,7 @@ public final class EntropyPool {
 	 * secure hash algorithm. 
 	 * 
 	 * @param reseedValues		array of at least 64 values
-	 * 							to reseed the values of the pool
+	 * 				to reseed the values of the pool
 	 */
 	public final void reseedPool(long[] reseedValues) {
 		
@@ -323,19 +308,21 @@ public final class EntropyPool {
 			throw new IllegalStateException("The EntropyPool wasn't started yet!");
 		}
 		if (reseedValues.length < pool.length) {
-			throw new IllegalArgumentException("reseed array must contain at least 64 values");
+			throw new IllegalArgumentException("reseed array must contain at least "+ POOL_SIZE + " values");
 		}
 		// update every value of the pool
 		for ( int i = 0; i < POOL_SIZE; i++){
 			// perform every triple:
 			for (int j = 0; j < TRIPLE_NUMBER; j++) {
-				ePool.pool[i] = xorShift(
+				ePool.pool[i] ^= xorShift(
 						ePool.pool[i], 
 						triples[j][0], triples[j][1], triples[j][2]); 
 			}
 			// xor with reseed value:
 			ePool.pool[i] ^= reseedValues[i];
 		}
+		// reset the counter: you can get POOL_SIZE values now without reseeding
+		getValueCounter = 0;
 	}
 	
 	/**
@@ -343,8 +330,16 @@ public final class EntropyPool {
 	 */
 	public final void clearPool(){
 		Arrays.fill(pool,  0l);
-		pool = null; // access will throw exception
 		wasStarted = false;
+	}
+	
+	/**
+	 * Get the pool size (number of 64-bit values)
+	 * 
+	 * @return	the pool size
+	 */
+	public final static int getPoolSize(){
+		return POOL_SIZE;
 	}
 	
 	/**
@@ -414,8 +409,9 @@ public final class EntropyPool {
 			triplesIndex = index % TRIPLE_MASK;//(TRIPLE_NUMBER - 1);		
 			
 			while (running == true) {	
-				// === for testing the order of threads ================
-				//System.out.println(" " + index);
+				// === for testing the order of threads and accesses ===
+				//System.out.print(" " + index);
+				//System.out.println("tableCounter: " + tableCounter);
 				// =====================================================
 				
 				if (accessCounter > maxAccess || updateCounter > maxUpdates) {
@@ -423,8 +419,11 @@ public final class EntropyPool {
 					return;
 				}
 				
+				x0 += index;
+				x0 += tableCounter;
+				
 				x0 = xorShift(x0, triples[triplesIndex][0], triples[triplesIndex][1], triples[triplesIndex][2]);
-				pool[tableCounter++ & POOL_MASK] += x0;//% (POOL_SIZE - 1)] += x0;
+				pool[tableCounter++ & POOL_MASK] ^= x0;
 				
 				try {
 					sleep(pause);
@@ -432,7 +431,7 @@ public final class EntropyPool {
 					//System.err.println("Thread interrupted");
 				} 
 				x0 = xorShift(x0, triples[triplesIndex][0], triples[triplesIndex][1], triples[triplesIndex][2]);
-				pool[tableCounter++ & POOL_MASK] += x0;//% (POOL_SIZE - 1)] += x0;		
+				pool[tableCounter++ & POOL_MASK] ^= x0;	
 				accessCounter++;
 			}			      
 		}
